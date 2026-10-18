@@ -1,44 +1,46 @@
-# AI Factory — системный дизайн 1.0
+# AI Factory — системный дизайн 1.0 (Codex Cloud)
 
-**Статус:** проектное предложение, подготовленное по согласованным разделам 1–12; готово к независимому ревью
+**Статус:** актуальная проектная редакция; Codex Cloud через ChatGPT-подписку (заменяет прежний API-based runtime выбор)
 **Дата:** 18.10.2026
 **Основание:** [`docs/specification.md`](../../specification.md)
 **Объём этой работы:** проектирование и документация; реализация не выполнялась.
 
 ## 1. Цель и границы
 
-AI Factory — повторно используемая облачная система, которая производит продукты в отдельных репозиториях GitHub, сохраняет производственную историю в репозитории фабрики и развивает общие практики только через проверяемые, разрешённые изменения. Версия 1.0 включает плоскую и многоуровневую организацию, общие бюджеты, восстановление, две ступени приёмки и контролируемое улучшение инструкций.
+AI Factory — повторно используемая облачная система, которая производит продукты в отдельных репозиториях GitHub, сохраняет производственную историю в репозитории фабрики и развивает общие практики только через проверяемые, разрешённые изменения. Версия 1.0 включает плоскую и многоуровневую организацию, общий учёт использования подписки, восстановление, две ступени приёмки и контролируемое улучшение инструкций.
 
-Архитектурный выбор: использовать управляемые облачные агентные сессии OpenAI как основной runtime; GitHub — единственный долговременный прикладной источник состояния; собственного постоянно работающего сервера и отдельной производственной базы данных нет. Если проверка платформы покажет, что требуемые capability нельзя получить штатными средствами или краткоживущей облачной средой без обязательного сервера, это блокер 1.0 с вариантами решения, а не основание для скрытого урезания требований.
+**Выбранный runtime:** Codex Cloud из ChatGPT web/desktop под учётной записью с подходящим ChatGPT-планом. Производственные задачи используют только включённую квоту подписки; при исчерпании работа ставится на паузу до plan reset. Покупка кредитов, auto-reload, гибкая доплата и API-биллинг не входят в этот вариант. В продукте фабрики нет Agents API, Responses API, OpenAI API key, API app-server или внешнего backend-оркестратора. Это UI-управляемый вариант: человек запускает и возобновляет Cloud tasks, а AI-роль PO планирует производство, оформляет task contracts и принимает результаты. Если облачная задача не поддерживает требуемое делегирование ролям, оператор запускает отдельные Cloud tasks по неизменённым контрактам из очереди фабрики; это ручной launch relay, а не смена прав принятия решений.
+
+GitHub — долговременный источник прикладного состояния; опубликованная Cloud environment — повторно используемый образ tool/dependency setup, а workspace отдельной задачи — временное рабочее место. Нет собственного постоянно работающего сервера или отдельной производственной базы данных. Если Cloud UI/environments не позволяют доказать multi-role delegation, доступ к двум repos, recovery или приемлемые budget controls, это блокер 1.0/пункт для решения человека; запрещено незаметно переключаться на OpenAI API.
 
 ## 2. Архитектура
 
 ```mermaid
 flowchart LR
-  H[Человек: разрешения и PO acceptance] --> R[Запуск и управляющая сессия]
+  H[Оператор: ChatGPT account + явный запуск/возобновление] --> R[Codex Cloud UI task]
   R --> P[PO: структура, декомпозиция, интеграция]
-  P --> C[Необязательный Chief]
-  P --> L[Необязательный Planner]
+  P --> C[Необязательный Chief / delegated Cloud task]
+  P --> L[Необязательный Planner / delegated Cloud task]
   C --> L
   L --> W[Worker: ограниченная задача]
   P --> W
-  W --> PR[Репозиторий продукта: код, тесты, спецификация]
-  W --> FR[Репозиторий фабрики: factual journal]
+  W --> PR[GitHub product repo: код, тесты, спецификация]
+  W --> FR[GitHub factory repo: factual journal]
   P --> FR
   C --> FR
   L --> FR
   PR -. commit refs / reconciliation .-> FR
   FR --> R
-  R --> O[OpenAI managed agent sessions / sandbox]
+  R --> O[Cloud environment: isolated task VM]
 ```
 
 ### 2.1 Владение
 
 | Область | Авторитетное содержимое | Запись |
 |---|---|---|
-| Репозиторий фабрики (разрешительная лицензия, целевая Apache-2.0) | Роли, общие инструкции/навыки, схемы, active/archive runs, решения, бюджеты, журналы, эксперименты, история изменений фабрики | Только разрешённые роли и GitHub App; branch protection на базовых ветках |
+| Репозиторий фабрики (разрешительная лицензия, целевая Apache-2.0) | Роли, общие инструкции/навыки, схемы, active/archive runs, решения, бюджеты, журналы, эксперименты, история изменений фабрики | Только разрешённые роли через подключённую GitHub identity; operator scopes selected repos; branch protection/PR на базовых ветках |
 | Репозиторий отдельного продукта | Внешняя спецификация, критерии и ограничения, allowlisted локальные инструкции, исходный код, тесты, интеграционные материалы и product history | Worker — только назначенные пути; руководитель — делегированные пути; PO — интеграция и приёмка |
-| Агентный runtime | Временный workspace, сессионный контекст, инструменты и вызовы | Не является долговременным источником истины; исчезновение sandbox восстанавливается из Git |
+| Codex Cloud environment/task | Публикуемый setup; VM и файлы конкретной Cloud task; task turns | Не является долговременным источником истины; после VM retention run восстанавливается из Git |
 
 Один и тот же набор конфигурации фабрики подключается к многим продуктам, но состояния, ID и приватные данные разделены. Для публичного factory repo worker сохраняет обязательный factual journal в безопасном редактированном виде; чувствительное подробное свидетельство остаётся в закрытом product repo, а journal содержит классификацию редактирования, факт операции, result/status и ссылку/commit SHA без раскрытия секрета. Если сам факт или метаданные ссылки чувствительны, соответствующий deployment использует приватный factory repo; общие исходники фабрики могут оставаться публичными отдельно от приватного run data.
 
@@ -46,11 +48,22 @@ flowchart LR
 
 1. **Launch/authorization:** закрепляет project/run ID, точные repository refs, разрешённые права, требования и исходный лимит. Человек утверждает внешнюю спецификацию, верхнеуровневые ограничения, покупки, deploy, destructive действия, публикацию закрытых данных и governance changes.
 2. **PO:** читает спецификацию полностью, выбирает минимально достаточную структуру, задаёт продуктовые контракты, интегрирует независимые направления и принимает только интегрированный результат против исходных критериев.
-3. **Chief (условно):** вводится, когда несколько направлений делят общий бюджет, риск или production policy; распределяет квоту и меняет инструкции только прямых подчинённых Planner.
-4. **Planner (условно):** ведёт ограниченный эпик/направление, декомпозирует рекурсивно, назначает Worker, проверяет локальную приёмку и эскалирует за пределами authority/context/budget.
+3. **Chief (условно):** вводится, когда несколько направлений делят общий бюджет, риск или production policy; распределяет учётную квоту и меняет инструкции только прямых подчинённых Planner.
+4. **Planner (условно):** ведёт ограниченный эпик/направление, декомпозирует рекурсивно, назначает Worker (через subagent, если это поддерживается в Cloud task, иначе через запись очереди для нового user-started Cloud task), проверяет локальную приёмку и эскалирует за пределами authority/context/budget.
 5. **Worker (обязателен):** реализует назначенную задачу, проводит перечисленные проверки, пишет разрешённые product paths и factual journal. Не проводит meta-analysis, не улучшает фабрику и не утверждает собственную role-base instruction.
 6. **Run registry and journals:** machine-readable файлы в factory repo; append-only события/новые версии и явная коррекция с provenance. Нет скрытого перезаписывания истории.
-7. **Provider adapter boundary:** версионируемая конфигурация моделей, tools, permissions, session creation/resume/cancel and capability evidence. Она отделяет переносимые policy/contracts от OpenAI-specific transport. Другой provider в 1.0 не реализуется.
+7. **Codex Cloud environment profile:** публикуемый Cloud environment выбирает repos, setup, network access, допустимые environment variables/network secrets и зависимости. Ролевые инструкции и навыки остаются версионированными файлами репозитория. Модель/intelligence выбираются только из доступных в Cloud UI settings и фиксируются агентом как observed либо `unknown`; программного runtime adapter нет.
+
+### 2.3 Рабочий цикл Codex Cloud по подписке
+
+1. Оператор подключает GitHub account и выбирает factory repo и один product repo в Cloud environment, задаёт setup/network policy, проверяет и публикует environment. Доступность двух repos одновременно подтверждается отдельным WP0 gate.
+2. Оператор из ChatGPT web/desktop выбирает `Work in > Cloud`, опубликованную environment и запускает task с run ID. Codex Cloud работает в своей VM; компьютер оператора может быть выключен.
+3. PO внутри task читает закреплённые версии требований и фабрики, записывает орг-решение, work items и бюджеты в factory repo. Если Cloud subagents доступны и проверены, PO может делегировать им; иначе PO пишет launch queue с отдельными contract prompts. Оператор копирует неизменённый контракт в новый Cloud task и возвращает его ссылку/результат в очередь. Оператор обеспечивает запуск, но не меняет scope, criteria, acceptance и полномочия.
+4. Worker изменяет только назначенный product scope, проводит проверки, создаёт commit/PR и добавляет factual journal в factory repo. PO/Planner запускается или возобновляется отдельным turn/task для review; human product approval остаётся явной границей.
+5. Для продолжения той же работы оператор открывает ту же Cloud task. Новая задача берёт исходный опубликованный environment, а не состояние другого task; поэтому перед новым task предыдущая роль обязана записать очередь и checkpoint в Git.
+6. Состояние задачи Codex Cloud удобно для недавнего продолжения, но не считается архивом. Документированные Cloud environments указывают ограниченное окно восстановления VM (до 7 дней после последнего turn/resume); run lifecycle и после этого восстанавливается из Git refs/journals.
+
+Cloud usage списывается из включённой квоты ChatGPT plan; объём зависит от модели, сложности, reasoning, контекста и инструментов, а cloud tasks могут потреблять больше обычных локальных сообщений. Учёт фабрики поэтому разделяет внутренние резервы и фактическую plan usage, импортированную/введённую из доступного Usage dashboard, либо `unknown`. Встроенная лимитирующая функция на run/agent allocation в Codex Cloud здесь не предполагается. Когда остаток плана исчерпан или его нельзя подтвердить, launch queue блокируется до reset; покупка кредитов, auto-reload и Enterprise flexible pricing исключены из выбранного варианта.
 
 ## 3. Authority и делегирование
 
@@ -85,13 +98,13 @@ stateDiagram-v2
   ACTIVE --> FAILED: необратимая ошибка после recovery policy
 ```
 
-Run: `PREPARING → ACTIVE ↔ PAUSED`, переход к `INTEGRATION_REVIEW`, затем `ACCEPTED`; `BLOCKED` — ожидающее решения нетерминальное состояние, а `CANCELLED` и `FAILED` требуют явной причины, actor и decision. `ACTIVE`/`PAUSED` требуют актуальных checkpoint refs. Resume всегда стартует как новая авторизованная сессия; автоактивация по reset quota не предполагается.
+Run: `PREPARING → ACTIVE ↔ PAUSED`, переход к `INTEGRATION_REVIEW`, затем `ACCEPTED`; `BLOCKED` — ожидающее решения нетерминальное состояние, а `CANCELLED` и `FAILED` требуют явной причины, actor и decision. `ACTIVE`/`PAUSED` требуют актуальных checkpoint refs. Оператор продолжает ту же Cloud task, пока её состояние доступно; после потери VM он запускает recovery task из Git checkpoint под тем же run ID. Автоактивация по reset quota не предполагается.
 
 Work item: `BACKLOG → READY → ASSIGNED → RUNNING → REVIEW → ACCEPTED`; из `REVIEW` может быть `CHANGES_REQUESTED → ASSIGNED`; в любой нетерминальной стадии допустимы `PAUSED` или `BLOCKED`; после ограниченных retries руководитель принимает решение о переразбивке, эскалации, отмене либо повторном запуске с новым assignment version. Только непосредственный руководитель ставит локальный `ACCEPTED`; только PO — интеграционный acceptance. Неизвестное/пропущенное состояние запрещает автоматическое повторное исполнение до reconciliation.
 
 ### 4.1 Checkpoint/recovery
 
-Перед созданием дочерних задач, запуском изменяющей сессии, pause и cross-repo write фиксируются intent, idempotency key, expected base SHA каждого затронутого repo, policy/assignment hashes, budget reservation, next step и source event IDs. После операции фиксируются фактические refs, outcome/error, provider session/turn ids и reconciled refs. При возобновлении агент читает активный manifest, незакрытые intents, оба Git HEAD/PR refs, journals и resource ledger; обнаруживает commits по operation ID/fingerprint; продолжает неисполненный шаг или отмечает conflict. Никогда не force-push, не скрывает потерянную запись и не повторяет неидемпотентное внешнее действие вслепую.
+Перед добавлением child assignment в launch queue, операторским запуском изменяющей Cloud task, pause и cross-repo write фиксируются intent, idempotency key, expected base SHA каждого затронутого repo, policy/assignment hashes, budget reservation, next step и source event IDs. После операции фиксируются фактические refs, outcome/error, Codex task/thread identifiers when visible и reconciled refs. При возобновлении агент читает active manifest, незакрытые intents, оба Git HEAD/PR refs, journals и resource ledger; обнаруживает commits по operation ID/fingerprint; продолжает неисполненный шаг или отмечает conflict. Никогда не force-push, не скрывает потерянную запись и не повторяет неидемпотентное внешнее действие вслепую.
 
 ## 5. Контракты данных и Git
 
@@ -136,7 +149,7 @@ Git cannot atomically commit to two repositories. The coordinator performs a dur
 
 ## 6. Ресурсы, retries, quality and self-correction
 
-Budgets form a tree: top-level allocation belongs to Chief if present, otherwise PO. Planner reserves within allocation before spawning Workers. Siblings cannot spend reserved quota. A reservation has currency/units and window, estimate basis, hard stop, child allocation and release/settlement rule. Record provider-observed usage separately from estimate; unknown never equals zero. Stop new work at the lower of project cap, role cap, session cap and provider cap; checkpoint and move to `PAUSED`. Resume requires fresh authorization and enough remaining/replenished allocation. No purchase or hidden API spend.
+Budgets form a tree: top-level allocation belongs to Chief if present, otherwise PO. Planner creates soft reservations in explicit units (prefer plan-dashboard usage when visible; otherwise Cloud task/turn allowances) before adding work to the launch queue. Codex Cloud plan limits are account-level; this design has no documented machine-readable per-run/per-role hard cap. Therefore only the provider's overall plan limit is a hard enforcement boundary. Factory reservations constrain what the operator authorizes next: tasks are launched serially while usage visibility/refresh is unverified; parallel siblings are allowed only if WP0 proves enough current shared headroom. If remaining allowance is not verifiable or reserved, do not launch more sibling tasks; checkpoint and move the run to `PAUSED`. Record dashboard-observed usage separately from estimates; unknown never equals zero. Resume requires fresh authorization and confirmed headroom or plan reset. Additional credits, automatic reload and a plan change require explicit human approval. No API spend.
 
 Retry budget is explicit per assignment and nested under run limits. Each retry records failure category, changes made and expected new evidence. Same failure fingerprint twice triggers manager review; exhausted retries cause split/replan/escalate/pause, not unlimited looping. Provider error recovery distinguishes transient/rate limit, authentication/permission, budget exhaustion, invalid request, session loss and ambiguous external side effect. Inspect persisted state first; bounded exponential retry only for idempotent transient calls.
 
@@ -146,29 +159,28 @@ Quality indicators: product and integration acceptance; rework cycles and causes
 
 ## 7. Security and privacy boundaries
 
-- GitHub App installation is scoped to selected repositories and minimal necessary permissions. Human branch protection governs base branches, instruction governance and protected actions. Worker credentials are scoped to task/repo/path where platform permits; otherwise repository/branch isolation and PR review provide the fallback.
-- Keep OpenAI API keys and GitHub credentials outside prompt text, product files and public logs. Prefer provider-managed MCP/secret vault integration for credentials. If secrets must be injected into a sandbox, restrict egress to exact approved hosts, inject only short-lived scoped credentials and assume generated code can read every file/environment value available to it.
+- Each Cloud task receives only the repositories selected for its environment under the connected ChatGPT/GitHub identity. Confirm exact GitHub permission model and whether a two-repository environment is supported in WP0; use branch protection and PR review where per-path credentials cannot be enforced.
+- This edition does not create or store OpenAI API keys, Agents API sessions, or API app-server credentials. GitHub access uses the connected ChatGPT account and Codex Cloud repo connection. Product-service credentials use Cloud network secrets with approved destination domains where possible; direct environment variables are visible to task programs and must contain only scoped, short-lived values.
 - Product-controlled files and tool output are untrusted. Load only allowlisted local instructions at pinned SHA. Prompt-injection text cannot alter authority, permissions, budget, external approval requirements or repository boundary.
 - Privacy class is assigned at project onboarding. Public factory journal contains redacted factual summary and non-sensitive refs; private product assets remain in product repo. Secret, personal data, source excerpts and confidential commercial details are excluded from public prompts/journals/traces. A deterministic redaction pass is supplemented with manual approval for publication; redaction is not treated as proof of no disclosure.
 - Human approval is required before production deploy, purchase, destructive operation, change to branch/security rules, publication of previously private product materials, external contractual commitment or role-governance/immutable-policy change.
 
-## 8. Platform feasibility and evidence
+## 8. Codex Cloud feasibility and evidence
 
-The following is a **documentation review**, not a runtime proof. Platform behavior is beta/version dependent. Confirm the tenant entitlement, API version, exact tool behavior and data-retention configuration during WP0 before implementation decisions are frozen.
+The following is an **official documentation review**, not a runtime proof for the user's account. Cloud features and plan limits can vary by plan, region, workspace policy and product changes. No Agents API/Responses API claim below is part of the selected design.
 
-| Capability | Evidence status | Proposed mechanism / limitation |
+| Capability | Evidence status | Selected mechanism / limitation |
 |---|---|---|
-| Managed sessions, session history, continue a run and sandbox attachment | Documented | Agents API managed harness and session API; app uses session/turn IDs. Verify availability in intended organization. [Agents API overview](https://developers.openai.com/api/docs/guides/agents-api/overview), [sessions](https://developers.openai.com/api/docs/guides/agents-api/quickstart) |
-| Built-in multi-agent/subagents | Documented | Multi-agent guide describes delegated contexts/events and concurrency settings; verify role-specific model/tool/credential isolation and interruption semantics. [Multi-agent](https://developers.openai.com/api/docs/guides/agents-api/multi-agent) |
-| Hosted sandbox and network controls | Documented | Hosted Linux workspace and network controls exist; workspace is not durable authority and may be deleted after idle retention. persist only refs/artifacts through Git. [Hosted sandbox](https://developers.openai.com/api/docs/guides/agents-api/environments/openai-hosted), [security](https://developers.openai.com/api/docs/guides/agents-api/environments/security) |
-| Vault-backed secrets | Documented, implementation fit unverified | Vault stores secret values outside prompts; environment exposure can still make them readable by code. test scoped secret, exact egress and rotation. [Vaults](https://developers.openai.com/api/docs/guides/agents-api/tools/vaults) |
-| Session spend limit | API reference documents optional per-session USD-cent limit; coverage unknown | Add only as secondary guard. Determine aggregation across subagents/tools and limit semantics with a controlled low-cap run. Usage may be best-effort/null; never equate missing data with zero. [Session create reference](https://developers.openai.com/api/reference/java/resources/beta/subresources/agents/subresources/sessions/methods/create), [usage](https://developers.openai.com/api/docs/guides/agents-api/observability) |
-| Usage attribution / trace | Partial/documented | Session/turn token usage may be best-effort/null and not equal final invoice; trace export supports diagnostics but Git remains required audit history. [Observability](https://developers.openai.com/api/docs/guides/agents-api/observability) |
-| Rate/budget/session error recovery | Documented error classes; end-to-end recovery unverified | Persist before action; classify, inspect state, bounded retry only when safe. [Errors and recovery](https://developers.openai.com/api/docs/guides/agents-api/errors) |
-| GitHub access | GitHub App mechanism documented; provider-native Git function unverified | Use minimal installation permissions and approved Git integration/MCP/tool; test private repos, branch protection, PR creation, token expiry. [GitHub App permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app), [protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches) |
-| Durable cross-repo transaction | Unsupported by Git model | Factory-side saga and reconciliation are required; no atomicity assertion. |
-| Automatic reactivation after quota reset | Unsupported/unverified | Not assumed. New authorized session is explicit resume path; do not add user-managed always-on server to simulate it. |
-| Custom function tools without app process | Not automatic | Function tools require a service to execute calls; avoid custom functions in default path, use supported built-ins/MCP. If required, prove a managed/serverless provider-hosted execution path or treat as blocker under P-044. [Function tools](https://developers.openai.com/api/docs/guides/agents-api/tools/functions) |
+| Start coding task in hosted Cloud and work while the user's computer sleeps | Documented | Sign in to ChatGPT, choose a published Cloud environment, start a task, review/continue from web/mobile/desktop. [Codex Cloud](https://learn.chatgpt.com/docs/cloud) |
+| ChatGPT plan instead of API billing | Documented | Cloud/other chats share plan usage; Cloud tasks can use more allowance than local messages. Current allowance/reset appears in account usage dashboard. The plan-vs-API product comparison distinguishes Cloud features from API-key path. [Pricing and usage](https://learn.chatgpt.com/docs/pricing) |
+| Environment with selected GitHub repos/dependencies/tools | Documented | Publish a reusable environment; each task has its own isolated workspace. Exact two-repo factory/product workflow, private repo access and dual-repo commits require WP0 test. [Cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environments) |
+| Continue same task / recover task VM | Documented, bounded | Reopen the same task; saved VM is recoverable up to 7 days after last turn/resume by default. Git commits/checkpoints remain system-of-record for longer recovery. [Cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environments) |
+| Codex Cloud subagents and role-specific model/tool scopes | Unverified for Cloud tasks | Subagent guide documents current Codex local/IDE clients and ChatGPT Work; it does not establish child-agent launch, inherited context, or model/permission isolation inside a Cloud task. WP0 must prove it; fallback is separate user-started Cloud tasks with role-specific immutable assignment prompts. [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) |
+| Programmatically create/continue Cloud tasks using subscription | Unsupported/not documented | No API/task-creation automation is used. Operator explicitly starts/resumes tasks in Codex Cloud UI. If unattended machine orchestration is required, this variant cannot meet it without a new human scope decision. |
+| Included usage visibility and hard shared run-level budget | Partial | Plan-level limits/usage dashboard are documented; per-run/per-role quota reservation or live machine-readable usage for factory ledgers is not established. Use task-count soft ceilings and operator checks; record fine-grained usage as `unknown` unless the UI provides evidence. [Pricing and usage](https://learn.chatgpt.com/docs/pricing) |
+| Cloud VM/network access/secrets | Documented | Environment controls internet domains; network secrets can be scoped to domains; tasks have isolated VM and plan-dependent default size. Confirm exact available controls for account. [Cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environments) |
+| Automatic relaunch on plan limit reset | Unsupported/not documented | Human checks plan usage/reset and explicitly resumes same task or starts a recovery task. |
+| Two-repository durable write | Git histories documented, Cloud workflow unverified | Git histories remain separate; factory/product writes still use saga/reconciliation. Prove both repo checkouts and write scopes in WP0/WP2; no atomic cross-repo transaction. |
 
 ## 9. Decisions, tradeoffs and open checks
 
@@ -176,19 +188,20 @@ The following is a **documentation review**, not a runtime proof. Platform behav
 |---|---|---|
 | D-01 | GitHub factory and each product are separate; no transactional database | PR/commit saga is more operationally explicit; test competing writes and abandoned operations |
 | D-02 | Git files are durable run state; provider session is resumable execution only | Recovery is reproducible, but manifests/journals require schema and concurrency discipline |
-| D-03 | Managed OpenAI cloud agent runtime is target 1.0 | Simplifies no-server path; WP0 must prove complete flow and entitlement |
+| D-03 | Codex Cloud UI + eligible ChatGPT plan is target 1.0; OpenAI API is excluded | Human-launched task model; no programmatic task create/resume. Confirm plan access and complete Cloud workflow in WP0 |
 | D-04 | Workers always produce product artifact plus factual factory journal | Public reuse requires redaction; test sensitive path/metadata handling |
 | D-05 | Human owns PO core, protected actions and externally approved product requirements | Some operations wait for a person; no silent delegation of consequential approvals |
 | D-06 | Default role topology is selected per run, not fixed | Requires explicit explainable organization decision and role-scoped context |
 | D-07 | Unknown resource usage is persisted as unknown | May limit cost-per-result analysis; this is more accurate than fabricated attribution |
-| D-08 | No quota-reset auto-reactivation in 1.0 absent documented support | Human/authorized trigger required; resume capability remains mandatory |
+| D-08 | No quota-reset auto-reactivation or custom per-agent hard budget is assumed | Human checks usage and resumes; ledger records plan consumption only when observable |
+| D-09 | If Cloud task subagents are unavailable, the operator relays PO-authored contracts into separate Cloud tasks | Keeps role instructions, task scopes and Git evidence; introduces human scheduling and may reduce throughput |
 
-Open verification questions (not scope changes): tenant/API version entitlement; official mechanism for GitHub read/write without user workstation or mandatory custom server; subagent spend aggregation; role-specific model/tool setup; cancellation and session lifecycle; durable upload/retrieve of artifacts; actual API billing fields. If a finding would require mandatory self-hosting, alter release scope or weaken security, return to human for a decision as specified by P-015.
+Open verification questions (not scope changes): does the selected subscription/account expose Codex Cloud; can one published environment check out both factory and product repositories and persist PRs/commits to both; can Cloud tasks call true subagents and select role-specific models; what task recovery window and interruption controls apply; what plan usage visibility can be reliably attributed to a run; can soft reservations prevent sibling work from consuming shared plan usage unexpectedly. If an answer would require API billing, unattended backend orchestration, mandatory self-hosting, changing acceptance scope or weakening security, return to the human for a new decision; do not silently use the API.
 
 ## 10. Glossary
 
-**Run** — one bounded production engagement for one product. **Work item/task** — a requirement-linked unit with assignment, budget, and acceptance contract. **Assignment** — immutable version of delegation terms. **Role** — authority/context policy (PO, Chief, Planner, Worker), not a persistent process. **Agent invocation** — provider session/turn/subagent execution. **Checkpoint** — Git-persisted state and next recovery action. **Saga** — durable sequence of independently committed cross-repo operations with reconciliation. **Local acceptance** — direct manager's decision for a task. **Product acceptance** — PO's integration-level decision against external criteria. **Role-base instruction** — reusable governed role prompt; distinct from task instructions. **Factual journal** — worker record of actions/results without organizational analysis. **Unknown** — unavailable or unverified value, never zero by default.
+**Run** — one bounded production engagement for one product. **Work item** — a requirement-linked unit with assignment, budget, and acceptance contract. **Cloud task** — a Codex Cloud execution workspace started/resumed through the ChatGPT interface. **Assignment** — immutable version of delegation terms. **Role** — authority/context policy (PO, Chief, Planner, Worker), not a persistent process. **Invocation** — a Cloud task turn or a verified subagent thread. **Checkpoint** — Git-persisted state and next recovery action. **Saga** — durable sequence of independently committed cross-repo operations with reconciliation. **Local acceptance** — direct manager's decision for a task. **Product acceptance** — PO's integration-level decision against external criteria. **Role-base instruction** — reusable governed role prompt; distinct from task instructions. **Factual journal** — worker record of actions/results without organizational analysis. **Unknown** — unavailable or unverified value, never zero by default.
 
 ## 11. Scope of design approval
 
-The user approved design choices iteratively, including architecture option 1, roles/data flow, state/recovery model, authority and acceptance contract, resources and logs, controlled self-correction, security boundaries, traceability/metrics, platform capability treatment, full 1.0 roadmap, file contracts, and quality/anti-goals/open-decision handling. This documents design approval only. It does not approve implementation, provider spending, deployment, or external publication.
+The user approved design choices iteratively, including roles/data flow, state/recovery model, authority and acceptance contract, resources and logs, controlled self-correction, security boundaries, traceability/metrics, full 1.0 roadmap, file contracts, and quality/anti-goals/open-decision handling. The user later directed that the runtime use Codex Cloud within a ChatGPT subscription rather than OpenAI API; this edition supersedes the earlier managed-Agents-API route. This documents design approval only. It does not approve implementation, additional credits, deployment, or external publication.
